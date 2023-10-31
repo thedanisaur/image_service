@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image_service/db"
+	"image_service/handlers"
+	"image_service/types"
 	"log"
-	"movie_service/db"
-	"movie_service/handlers"
-	"movie_service/types"
 	"os"
 	"strings"
 	"time"
@@ -29,7 +29,7 @@ func loadConfig(config_path string) (types.Config, error) {
 }
 
 func main() {
-	log.Println("Starting Movie Service...")
+	log.Println("Starting Image Service...")
 	config, err := loadConfig("./config.json")
 	if err != nil {
 		log.Printf("Error opening config, cannot continue: %s\n", err.Error())
@@ -65,20 +65,11 @@ func main() {
 	}))
 
 	// Non Authenticated routes
-	app.Get("/movies", handlers.GetMovies)
-	app.Get("/movie_trackers/:tracker_id", handlers.GetMovieTrackersByID)
-	app.Get("/movie_trackers/:movie_name/:username", handlers.GetMovieTrackers)
-	app.Get("/ratings", handlers.GetRatings)
-	app.Get("/series", handlers.GetSeries)
-	app.Get("/timeline", handlers.GetTimeline)
-	app.Get("/trackers", handlers.GetTrackers)
+	app.Get("/images", handlers.GetImages)
+	app.Get("/image/:id", handlers.GetImage)
 
 	// JWT Authentication routes
-	app.Post("/movies/:series", handlers.PostMovie)
-	app.Post("/movie_trackers/:username", handlers.PostMovieTrackers)
-	app.Post("/series", handlers.PostSeries)
-	app.Post("/trackers", handlers.PostTrackers)
-	app.Post("/vote", handlers.PostVote)
+	app.Post("/image", handlers.FetchImage)
 
 	port := fmt.Sprintf(":%d", config.App.Host.Port)
 	if config.App.Host.UseTLS {

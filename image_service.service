@@ -1,6 +1,6 @@
 [Unit]
 Description=Movie Service
-ConditionPathExists=/home/ec2-user/code/movie_service
+ConditionPathExists=/home/ec2-user/code/image_service
 After=network.target
  
 [Service]
@@ -13,14 +13,14 @@ Restart=on-failure
 RestartSec=10
 startLimitIntervalSec=60
 
-WorkingDirectory=/home/ec2-user/code/movie_service
-ExecStart=/home/ec2-user/code/movie_service/main
+WorkingDirectory=/home/ec2-user/code/image_service
+ExecStart=/home/ec2-user/code/image_service/main
 
 # make sure log directory exists and owned by user
 PermissionsStartOnly=true
-ExecStartPre=/bin/mkdir -p /var/log/movie_service
-ExecStartPre=/bin/chown ec2-user /var/log/movie_service
-ExecStartPre=/bin/chmod 755 /var/log/movie_service
+ExecStartPre=/bin/mkdir -p /var/log/image_service
+ExecStartPre=/bin/chown ec2-user /var/log/image_service
+ExecStartPre=/bin/chmod 755 /var/log/image_service
 SyslogIdentifier=ec2-user
  
 [Install]
