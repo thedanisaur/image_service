@@ -42,6 +42,9 @@
             "expiration": 60000,
             "limiter_sliding_middleware": false,
             "skip_successful_requests": false
+        },
+        "client": {
+            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"
         }
     },
     "images": {

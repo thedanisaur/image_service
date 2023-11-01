@@ -28,6 +28,9 @@ type Config struct {
 			Max                      int  `json:"max_requests"`
 			SkipSuccessfulRequests   bool `json:"skip_successful_requests"`
 		}
+		Client struct {
+			UserAgent string `json:"user_agent"`
+		}
 	}
 	Images struct {
 		Path string `json:"path"`

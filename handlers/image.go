@@ -1,22 +1,21 @@
 package handlers
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	"image_service/crawler"
 	"image_service/db"
 	"image_service/types"
 	"image_service/util"
-	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/valyala/fasthttp"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -114,95 +113,84 @@ func FetchImage(config types.Config) fiber.Handler {
 			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to parse movie data: %s\n", txid.String()))
 		}
 
-		// TODO fix this to allow variable searches
+		// First search imdb and find the url for the requested movie
 		movie_title := strings.Replace(movie_data.MovieTitle, " ", "%20", -1)
-		url := fmt.Sprintf("https://www.imdb.com/find/?q=%s&ref_=nv_sr_sm", movie_title)
-		log.Printf("URL: %s\n", url)
-		// TODO do this properly with fiber
-		client := &http.Client{}
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36")
-		response, err := client.Do(req)
-		// response, err := http.Get(url)
+		main_url := fmt.Sprintf("https://www.imdb.com/find/?q=%s&ref_=nv_sr_sm", movie_title)
+		response, err := crawler.Request(config, main_url, fasthttp.MethodGet)
 		if err != nil {
-			log.Printf("Failed to fetch imdb body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to fetch imdb body: %s\n", txid.String()))
+			err_str := "Failed to fetch imbd.com\n%s\n"
+			log.Printf(err_str, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, txid.String()))
 		}
-		body, err := ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Printf("Failed to read body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to read body: %s\n", txid.String()))
+		// search for the route in the html body
+		params := crawler.MatcherParams{
+			Haystack: string(response.Body()),
+			Needle:   movie_data.MovieTitle,
+			AttrKey:  "href",
+			Atom:     atom.A.String(),
+			NodeType: html.ElementNode,
 		}
-		response.Body.Close()
-
-		title_url, err := findMovieURL(string(body), movie_data.MovieTitle)
+		title_route, err := crawler.Find(params, crawler.ImdbFindMovieUrl)
 		if err != nil {
-			log.Printf("Failed to find movie url\n%s\n", err.Error())
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to find movie url: %s\n", txid.String()))
+			err_str := "Failed to find url for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf(err_str, txid.String()))
 		}
 
-		// Go to title page
-		title_page_url := fmt.Sprintf("https://imdb.com%s", title_url)
-		log.Printf("Title Page Url: %s\n", title_page_url)
-		req, _ = http.NewRequest("GET", title_page_url, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36")
-		client = &http.Client{}
-		response, err = client.Do(req)
-		// response, err := http.Get(url)
+		// Go to title page and find the url for the image page
+		title_page_url := fmt.Sprintf("https://www.imdb.com%s", title_route)
+		response, err = crawler.Request(config, title_page_url, fasthttp.MethodGet)
 		if err != nil {
-			log.Printf("Failed to fetch imdb body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to fetch imdb body: %s\n", txid.String()))
+			log.Panic("third")
+			err_str := "Failed to fetch the title page for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-		body, err = ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Printf("Failed to read body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to read body: %s\n", txid.String()))
+		// left, right, found, remove everything past the title's base path i.e. /title/12345.../
+		left, _, _ := strings.Cut(title_route, "?")
+		// search for the url in the html body
+		image_poster_params := crawler.MatcherParams{
+			Haystack: string(response.Body()),
+			Needle:   fmt.Sprintf("%smediaviewer", left),
+			AttrKey:  "href",
+			Atom:     atom.A.String(),
+			NodeType: html.ElementNode,
 		}
-		response.Body.Close()
-
-		// left, right, found
-		left, _, _ := strings.Cut(title_url, "?")
-		image_page_url, err := findImagePosterUrl(string(body), fmt.Sprintf("%smediaviewer", left))
+		image_page_route, err := crawler.Find(image_poster_params, crawler.ImdbFindImagePosterUrl)
 		if err != nil {
-			log.Printf("Failed to find image page url\n%s\n", err.Error())
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to find image page url: %s\n", txid.String()))
+			err_str := "Failed to find image page for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
 
-		// Go to image page
-		image_page_url = fmt.Sprintf("https://imdb.com%s", image_page_url)
-		log.Printf("Image page Url: %s\n", image_page_url)
-		req, _ = http.NewRequest("GET", image_page_url, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36")
-		client = &http.Client{}
-		response, err = client.Do(req)
+		// // Go to image page and find the link to the actual image
+		image_page_url := fmt.Sprintf("https://www.imdb.com%s", image_page_route)
+		response, err = crawler.Request(config, image_page_url, fasthttp.MethodGet)
 		if err != nil {
-			log.Printf("Failed to fetch imdb body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to fetch imdb body: %s\n", txid.String()))
+			err_str := "Failed to fetch the image page for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-		body, err = ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Printf("Failed to read body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to read body: %s\n", txid.String()))
-		}
-		response.Body.Close()
 		// Remove <noscript> tags as they break parsing of img tags in golang.org/x/net/html
-		hdata := strings.Replace(string(body), "<noscript>", "", -1)
+		hdata := strings.Replace(string(response.Body()), "<noscript>", "", -1)
 		hdata = strings.Replace(hdata, "<noscript data-n-css=\"\">", "", -1)
 		hdata = strings.Replace(hdata, "</noscript>", "", -1)
-
-		image_url, err := findImageUrl(string(hdata), "https://m.media-amazon.com/images")
+		// search for the url in the html body
+		image_params := crawler.MatcherParams{
+			Haystack: string(hdata),
+			Needle:   "https://m.media-amazon.com/images",
+			AttrKey:  "src",
+			Atom:     atom.Img.String(),
+			NodeType: html.ElementNode,
+		}
+		image_url, err := crawler.Find(image_params, crawler.ImdbFindImageUrl)
 		if err != nil {
-			log.Printf("Failed to find image url\n%s\n", err.Error())
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to find image url: %s\n", txid.String()))
+			err_str := "Failed to find image url for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
 
-		// TODO save image
+		// Now that we have the actual image url we can save the image
 		// Check to see if folder for the series exists
 		path := fmt.Sprintf("%s%s/", config.Images.Path, movie_data.SeriesName)
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -213,34 +201,44 @@ func FetchImage(config types.Config) fiber.Handler {
 				return c.Status(fiber.StatusInternalServerError).SendString(err_str)
 			}
 		}
-
-		log.Printf("Image Url: %s\n", image_url)
-		req, _ = http.NewRequest("GET", image_url, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36")
-		client = &http.Client{}
-		response, err = client.Do(req)
+		// Download the image
+		response, err = crawler.Request(config, image_url, fasthttp.MethodGet)
 		if err != nil {
-			log.Printf("Failed to fetch imdb body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to fetch imdb body: %s\n", txid.String()))
+			err_str := "Failed to download the image for %s: \n%s\n"
+			log.Printf(err_str, movie_data.MovieTitle, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-
-		// open a file for writing
-		file, err := os.Create(fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type))
+		// Write file to disk
+		err = ioutil.WriteFile(fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type), response.Body(), 0644)
 		if err != nil {
-			log.Fatal(err)
+			err_str := "Failed to write image to disk: %s%s\n%s\n"
+			log.Printf(err_str, path, movie_data.MovieName, err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-		defer file.Close()
+		// // Alternate way to write to disk...not sure if worth it
+		// file, err := os.Create(fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type))
+		// if err != nil {
+		// 	err_str := "Failed to create file on disk: %s%s\n%s\n"
+		// 	log.Printf(err_str, path, movie_data.MovieName, err.Error())
+		// 	return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
+		// }
+		// defer file.Close()
+		// img, _, err := image.Decode(bytes.NewReader(response.Body()))
+		// if err != nil {
+		// 	log.Fatalln(err)
+		// }
 
-		// Use io.Copy to just dump the response body to the file. This supports huge files
-		_, err = io.Copy(file, response.Body)
-		if err != nil {
-			log.Printf("Failed to read body\n%s\n", err.Error())
-			// TODO this isn't a bad request, but vs code is being rude
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to read body: %s\n", txid.String()))
-		}
-		response.Body.Close()
-		file.Close()
+		// opts := jpeg.Options{
+		// 	Quality: 10,
+		// }
+
+		// err = jpeg.Encode(file, img, &opts)
+		// if err != nil {
+		// 	err_str := "Failed to write image to disk: %s%s\n%s\n"
+		// 	log.Printf(err_str, path, movie_data.MovieName, err.Error())
+		// 	return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
+		// }
+		// file.Close()
 
 		// Insert image path into DB
 		// err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
@@ -284,132 +282,4 @@ func FetchImage(config types.Config) fiber.Handler {
 
 		return c.Status(fiber.StatusOK).JSON(json)
 	}
-}
-
-func findImageUrl(body string, search_text string) (string, error) {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
-		return "", errors.New(fmt.Sprintf("Failed to parse html body: %s", err.Error()))
-	}
-
-	matcher := func(node *html.Node) (keep bool, exit bool) {
-		if node.Type == html.ElementNode && node.Data == atom.Img.String() {
-			for _, attr := range node.Attr {
-				if attr.Key == "src" && strings.Contains(attr.Val, search_text) {
-					keep = true
-				}
-			}
-			// I could exit early, but for now let's not.
-			// exit = true
-		}
-		return
-	}
-
-	nodes := traverseNode(doc, matcher)
-	// [drd] leaving this here in case I want to look at the page
-	// for i, node := range nodes {
-	// 	fmt.Println(i, renderNode(node))
-	// }
-	if len(nodes) > 0 {
-		for _, attr := range nodes[0].Attr {
-			if attr.Key == "src" {
-				return attr.Val, nil
-			}
-		}
-	}
-	return "", errors.New("Image URL Not Found")
-}
-
-func findImagePosterUrl(body string, search_text string) (string, error) {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
-		return "", errors.New(fmt.Sprintf("Failed to parse html body: %s", err.Error()))
-	}
-
-	matcher := func(node *html.Node) (keep bool, exit bool) {
-		if node.Type == html.ElementNode && node.Data == atom.A.String() {
-			for _, attr := range node.Attr {
-				if attr.Key == "href" && strings.Contains(attr.Val, search_text) {
-					keep = true
-				}
-			}
-			// I could exit early, but for now let's not.
-			// exit = true
-		}
-		return
-	}
-
-	nodes := traverseNode(doc, matcher)
-	// [drd] leaving this here in case I want to look at the page
-	// for i, node := range nodes {
-	// 	fmt.Println(i, renderNode(node))
-	// }
-	if len(nodes) > 0 {
-		for _, attr := range nodes[0].Attr {
-			if attr.Key == "href" {
-				return attr.Val, nil
-			}
-		}
-	}
-	return "", errors.New("Image Poster URL Not Found")
-}
-
-func findMovieURL(body string, search_text string) (string, error) {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
-		return "", errors.New(fmt.Sprintf("Failed to parse html body: %s", err.Error()))
-	}
-
-	matcher := func(node *html.Node) (keep bool, exit bool) {
-		if node.Type == html.ElementNode &&
-			node.Data == atom.A.String() &&
-			node.FirstChild != nil &&
-			node.FirstChild.Data == search_text {
-			keep = true
-			// I could exit early, but for now let's not.
-			// exit = true
-		}
-		return
-	}
-
-	nodes := traverseNode(doc, matcher)
-	// [drd] leaving this here in case I want to look at the page
-	// for i, node := range nodes {
-	// 	fmt.Println(i, renderNode(node))
-	// }
-	if len(nodes) > 0 {
-		for _, attr := range nodes[0].Attr {
-			if attr.Key == "href" {
-				return attr.Val, nil
-			}
-		}
-	}
-	return "", errors.New("Movie Title URL Not Found")
-}
-
-// traverse the nodes collecting the nodes that match the given function
-func traverseNode(doc *html.Node, matcher func(node *html.Node) (bool, bool)) (nodes []*html.Node) {
-	var keep, exit bool
-	var f func(*html.Node)
-	f = func(n *html.Node) {
-		keep, exit = matcher(n)
-		if keep {
-			nodes = append(nodes, n)
-		}
-		if exit {
-			return
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
-	}
-	f(doc)
-	return nodes
-}
-
-func renderNode(n *html.Node) string {
-	var buf bytes.Buffer
-	w := io.Writer(&buf)
-	html.Render(w, n)
-	return buf.String()
 }
