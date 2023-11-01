@@ -2,3 +2,5 @@
 *.key
 Dockerfile
 config.json
+img/
+*.jpg

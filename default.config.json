@@ -43,5 +43,9 @@
             "limiter_sliding_middleware": false,
             "skip_successful_requests": false
         }
+    },
+    "images": {
+        "path": "./img/",
+        "type": ".jpg"
     }
 }

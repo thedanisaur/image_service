@@ -29,4 +29,8 @@ type Config struct {
 			SkipSuccessfulRequests   bool `json:"skip_successful_requests"`
 		}
 	}
+	Images struct {
+		Path string `json:"path"`
+		Type string `json:"type"`
+	}
 }

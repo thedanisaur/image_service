@@ -69,7 +69,7 @@ func main() {
 	app.Get("/image/:id", handlers.GetImage)
 
 	// JWT Authentication routes
-	app.Post("/image", handlers.FetchImage)
+	app.Post("/image", handlers.FetchImage(config))
 
 	port := fmt.Sprintf(":%d", config.App.Host.Port)
 	if config.App.Host.UseTLS {
