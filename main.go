@@ -65,11 +65,10 @@ func main() {
 	}))
 
 	// Non Authenticated routes
-	app.Get("/images", handlers.GetImages)
-	app.Get("/image/:id", handlers.GetImage)
+	app.Get("/images/:movie_name", handlers.GetImage)
 
 	// JWT Authentication routes
-	app.Post("/image", handlers.FetchImage(config))
+	app.Post("/images", handlers.FetchImage(config))
 
 	port := fmt.Sprintf(":%d", config.App.Host.Port)
 	if config.App.Host.UseTLS {

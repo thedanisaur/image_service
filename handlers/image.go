@@ -20,62 +20,11 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-func GetImages(c *fiber.Ctx) error {
-	txid := uuid.New()
-	log.Printf("%s | %s\n", util.GetFunctionName(GetImages), txid.String())
-	err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
-	database, err := db.GetInstance()
-	if err != nil {
-		log.Printf("Failed to connect to DB\n%s\n", err.Error())
-		return c.Status(fiber.StatusInternalServerError).SendString(err_string)
-	}
-	query := `
-		SELECT *
-		FROM images
-	`
-	// TODO this will fail, so for now we just won't name the vars.
-	// rows, err := database.Query(query)
-	_, err = database.Query(query)
-	if err != nil {
-		log.Printf("Failed to query images:\n%s\n", err.Error())
-		return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
-	}
-
-	// var images []types.Image
-	// i := 0
-	// for rows.Next() {
-	// 	var image types.Image
-	// 	err = rows.Scan(&image.ID,
-	// 		&image.Text,
-	// 		&image.Count,
-	// 		&image.CreatedOn,
-	// 		&image.UpdatedOn,
-	// 		&image.CreatedBy)
-	// 	if err != nil {
-	// 		log.Printf("Failed to scan row:\n%s\n", err.Error())
-	// 		return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
-	// 	}
-	// 	images = append(images, image)
-	// 	i = i + 1
-	// }
-
-	// err = rows.Err()
-	// if err != nil {
-	// 	log.Printf("Failed after row scan:\n%s\n", err.Error())
-	// 	return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
-	// }
-
-	// return c.Status(fiber.StatusOK).JSON(images)
-	response := fiber.Map{
-		"txid": txid.String(),
-	}
-	return c.Status(fiber.StatusOK).JSON(response)
-}
-
 func GetImage(c *fiber.Ctx) error {
 	txid := uuid.New()
 	log.Printf("%s | %s\n", util.GetFunctionName(GetImage), txid.String())
-	image_id := c.Params("id")
+	movie_name := c.Params("movie_name")
+	// Get image path from DB
 	database, err := db.GetInstance()
 	if err != nil {
 		log.Printf("Failed to connect to DB\n%s\n", err.Error())
@@ -83,20 +32,28 @@ func GetImage(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString(err_string)
 	}
 	query_string := `
-		SELECT *
-		FROM images
-		WHERE id = ?
+		SELECT image_path
+		FROM movies_images_vw
+		WHERE movie_name = ?;
 	`
-	row := database.QueryRow(query_string, image_id)
+	row := database.QueryRow(query_string, movie_name)
 	var image types.Image
-	err = row.Scan(&image.ID)
+	err = row.Scan(&image.ImagePath)
 	if err != nil {
 		log.Printf("Database Error:\n%s\n", err.Error())
 		err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
-		return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
+		return c.Status(fiber.StatusInternalServerError).SendString(err_string)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(image)
+	_, err = os.Stat(image.ImagePath)
+	if err != nil {
+		log.Printf("File not on disk:\n%s\n", err.Error())
+		err_string := fmt.Sprintf("File not on disk: %s\n", txid.String())
+		return c.Status(fiber.StatusNotFound).SendString(err_string)
+	}
+
+	c.Response().Header.Set("Content-Type", "application/octet-stream")
+	return c.Status(fiber.StatusOK).SendFile(image.ImagePath)
 }
 
 func FetchImage(config types.Config) fiber.Handler {
@@ -134,7 +91,7 @@ func FetchImage(config types.Config) fiber.Handler {
 		if err != nil {
 			err_str := "Failed to find url for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
-			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf(err_str, txid.String()))
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, txid.String()))
 		}
 
 		// Go to title page and find the url for the image page
@@ -208,8 +165,9 @@ func FetchImage(config types.Config) fiber.Handler {
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
+		path_and_filename := fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type)
 		// Write file to disk
-		err = ioutil.WriteFile(fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type), response.Body(), 0644)
+		err = ioutil.WriteFile(path_and_filename, response.Body(), 0644)
 		if err != nil {
 			err_str := "Failed to write image to disk: %s%s\n%s\n"
 			log.Printf(err_str, path, movie_data.MovieName, err.Error())
@@ -241,43 +199,51 @@ func FetchImage(config types.Config) fiber.Handler {
 		// file.Close()
 
 		// Insert image path into DB
-		// err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
-		// database, err := db.GetInstance()
-		// if err != nil {
-		// 	log.Printf("Failed to connect to DB\n%s\n", err.Error())
-		// 	return c.Status(fiber.StatusInternalServerError).SendString(err_string)
-		// }
-		// query := `
-		// 	INSERT INTO trackers
-		// 	(
-		// 		tracker_id
-		// 		, tracker_text
-		// 		, tracker_created_on
-		// 		, tracker_updated_on
-		// 		, person_id
-		// 	)
-		// 	SELECT  UUID_TO_BIN(UUID())
-		// 			, ?
-		// 			, CURDATE()
-		// 			, CURDATE()
-		// 			, person_id
-		// 	FROM people
-		// 	WHERE person_username = LOWER(?);
-		// `
-		// result, err := database.Exec(query, tracker.Text, tracker.CreatedBy)
-		// if err != nil {
-		// 	log.Printf("Failed to insert record into trackers:\n%s\n", err.Error())
-		// 	return c.Status(fiber.StatusServiceUnavailable).SendString(err.Error())
-		// }
-		// id, err := result.LastInsertId()
-		// if err != nil {
-		// 	log.Printf("Failed retrieve inserted id\n%s\n", err.Error())
-		// 	return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
-		// }
+		err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
+		database, err := db.GetInstance()
+		if err != nil {
+			log.Printf("Failed to connect to DB\n%s\n", err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(err_string)
+		}
+		image_id := uuid.New()
+		query := `
+			INSERT INTO images (image_id, image_path, image_created_on)
+			VALUES (UUID_TO_BIN(?), ?, CURDATE());
+		`
+		result, err := database.Exec(query, image_id, path_and_filename)
+		if err != nil {
+			log.Printf("Failed to insert record into images:\n%s\n", err.Error())
+			return c.Status(fiber.StatusServiceUnavailable).SendString(err.Error())
+		}
+		_, err = result.LastInsertId()
+		if err != nil {
+			log.Printf("Failed retrieve inserted id\n%s\n", err.Error())
+			return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
+		}
+
+		// Insert movie image relation into DB
+		movie_image_id := uuid.New()
+		query = `
+			INSERT INTO movies_images (movie_image_id, movie_name, image_id)
+			VALUES (UUID_TO_BIN(?), ?, UUID_TO_BIN(?));
+		`
+		result, err = database.Exec(query, movie_image_id, movie_data.MovieName, image_id)
+		if err != nil {
+			log.Printf("Failed to insert record into movies images:\n%s\n", err.Error())
+			return c.Status(fiber.StatusServiceUnavailable).SendString(err.Error())
+		}
+		_, err = result.LastInsertId()
+		if err != nil {
+			log.Printf("Failed retrieve inserted id\n%s\n", err.Error())
+			return c.Status(fiber.StatusServiceUnavailable).SendString(err_string)
+		}
 
 		json := &fiber.Map{
-			"id":         txid,
-			"movie_name": movie_data.MovieName,
+			"id":             txid,
+			"movie_image_id": movie_image_id,
+			"movie_name":     movie_data.MovieName,
+			"image_id":       image_id,
+			"image_path":     path_and_filename,
 		}
 
 		return c.Status(fiber.StatusOK).JSON(json)
