@@ -63,6 +63,7 @@ func FetchImage(config types.Config) fiber.Handler {
 		// if security.ValidateJWT(c) != nil {
 		// 	return c.Status(fiber.StatusUnauthorized).SendString(fmt.Sprintf("Unauthorized: %s\n", txid.String()))
 		// }
+		// TODO in config see if we can remove ./ from the image.path
 		var movie_data types.Image
 		err := c.BodyParser(&movie_data)
 		if err != nil {
@@ -98,7 +99,6 @@ func FetchImage(config types.Config) fiber.Handler {
 		title_page_url := fmt.Sprintf("https://www.imdb.com%s", title_route)
 		response, err = crawler.Request(config, title_page_url, fasthttp.MethodGet)
 		if err != nil {
-			log.Panic("third")
 			err_str := "Failed to fetch the title page for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
