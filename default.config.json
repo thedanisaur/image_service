@@ -48,7 +48,8 @@
         }
     },
     "images": {
-        "path": "./img/",
+        "path": "/Users/novus/Documents/code/movie_sunday/movie_sunday/src/assets/",
+        "directory": "img/",
         "type": ".jpg"
     }
 }

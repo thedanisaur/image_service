@@ -33,7 +33,8 @@ type Config struct {
 		}
 	}
 	Images struct {
-		Path string `json:"path"`
-		Type string `json:"type"`
+		Path      string `json:"path"`
+		Directory string `json:"directory"`
+		Type      string `json:"type"`
 	}
 }

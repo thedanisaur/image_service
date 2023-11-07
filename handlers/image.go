@@ -20,40 +20,53 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-func GetImage(c *fiber.Ctx) error {
-	txid := uuid.New()
-	log.Printf("%s | %s\n", util.GetFunctionName(GetImage), txid.String())
-	movie_name := c.Params("movie_name")
-	// Get image path from DB
-	database, err := db.GetInstance()
-	if err != nil {
-		log.Printf("Failed to connect to DB\n%s\n", err.Error())
-		err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
-		return c.Status(fiber.StatusInternalServerError).SendString(err_string)
-	}
-	query_string := `
-		SELECT image_path
-		FROM movies_images_vw
-		WHERE movie_name = ?;
-	`
-	row := database.QueryRow(query_string, movie_name)
-	var image types.Image
-	err = row.Scan(&image.ImagePath)
-	if err != nil {
-		log.Printf("Database Error:\n%s\n", err.Error())
-		err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
-		return c.Status(fiber.StatusInternalServerError).SendString(err_string)
-	}
+func GetImage(config types.Config) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		txid := uuid.New()
+		log.Printf("%s | %s\n", util.GetFunctionName(GetImage), txid.String())
+		movie_name := c.Params("movie_name")
+		// Get image path from DB
+		database, err := db.GetInstance()
+		if err != nil {
+			log.Printf("Failed to connect to DB\n%s\n", err.Error())
+			err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
+			return c.Status(fiber.StatusInternalServerError).SendString(err_string)
+		}
+		query_string := `
+			SELECT image_path
+			FROM movies_images_vw
+			WHERE movie_name = ?;
+		`
+		row := database.QueryRow(query_string, movie_name)
+		var image types.Image
+		err = row.Scan(&image.ImagePath)
+		if err != nil {
+			json := &fiber.Map{
+				"id":         txid,
+				"error":      "Image not found",
+				"image_path": image.ImagePath,
+			}
+			log.Printf("Database Error: %s\n", err.Error())
+			return c.Status(fiber.StatusInternalServerError).JSON(json)
+		}
 
-	_, err = os.Stat(image.ImagePath)
-	if err != nil {
-		log.Printf("File not on disk:\n%s\n", err.Error())
-		err_string := fmt.Sprintf("File not on disk: %s\n", txid.String())
-		return c.Status(fiber.StatusNotFound).SendString(err_string)
-	}
+		path := fmt.Sprintf("%s%s", config.Images.Path, image.ImagePath)
+		_, err = os.Stat(path)
+		if err != nil {
+			log.Printf("File not on disk:\n%s\n", err.Error())
+			err_string := fmt.Sprintf("File not on disk: %s\n", txid.String())
+			return c.Status(fiber.StatusNotFound).SendString(err_string)
+		}
 
-	c.Response().Header.Set("Content-Type", "application/octet-stream")
-	return c.Status(fiber.StatusOK).SendFile(image.ImagePath)
+		json := &fiber.Map{
+			"id":         txid,
+			"image_path": image.ImagePath,
+		}
+
+		return c.Status(fiber.StatusOK).JSON(json)
+		// c.Response().Header.Set("Content-Type", "application/octet-stream")
+		// return c.Status(fiber.StatusOK).SendFile(image.ImagePath)
+	}
 }
 
 func FetchImage(config types.Config) fiber.Handler {
@@ -149,9 +162,9 @@ func FetchImage(config types.Config) fiber.Handler {
 
 		// Now that we have the actual image url we can save the image
 		// Check to see if folder for the series exists
-		path := fmt.Sprintf("%s%s/", config.Images.Path, movie_data.SeriesName)
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			err := os.MkdirAll(path, os.ModePerm)
+		full_path := fmt.Sprintf("%s%s%s/", config.Images.Path, config.Images.Directory, movie_data.SeriesName)
+		if _, err := os.Stat(full_path); errors.Is(err, os.ErrNotExist) {
+			err := os.MkdirAll(full_path, os.ModePerm)
 			if err != nil {
 				log.Println(err)
 				err_str := fmt.Sprintf("Could not create folder for %s: %s\n", movie_data.MovieTitle, txid.String())
@@ -165,12 +178,12 @@ func FetchImage(config types.Config) fiber.Handler {
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-		path_and_filename := fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type)
+		path_and_filename := fmt.Sprintf("%s%s%s", full_path, movie_data.MovieName, config.Images.Type)
 		// Write file to disk
 		err = ioutil.WriteFile(path_and_filename, response.Body(), 0644)
 		if err != nil {
-			err_str := "Failed to write image to disk: %s%s\n%s\n"
-			log.Printf(err_str, path, movie_data.MovieName, err.Error())
+			err_str := "Failed to write image to disk: %s\n%s\n"
+			log.Printf(err_str, path_and_filename, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
 		// // Alternate way to write to disk...not sure if worth it
@@ -210,7 +223,8 @@ func FetchImage(config types.Config) fiber.Handler {
 			INSERT INTO images (image_id, image_path, image_created_on)
 			VALUES (UUID_TO_BIN(?), ?, CURDATE());
 		`
-		result, err := database.Exec(query, image_id, path_and_filename)
+		path := fmt.Sprintf("%s%s/%s%s", config.Images.Directory, movie_data.SeriesName, movie_data.MovieName, config.Images.Type)
+		result, err := database.Exec(query, image_id, path)
 		if err != nil {
 			log.Printf("Failed to insert record into images:\n%s\n", err.Error())
 			return c.Status(fiber.StatusServiceUnavailable).SendString(err.Error())

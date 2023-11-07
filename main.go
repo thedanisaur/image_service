@@ -65,7 +65,7 @@ func main() {
 	}))
 
 	// Non Authenticated routes
-	app.Get("/images/:movie_name", handlers.GetImage)
+	app.Get("/images/:movie_name", handlers.GetImage(config))
 
 	// JWT Authentication routes
 	app.Post("/images", handlers.FetchImage(config))

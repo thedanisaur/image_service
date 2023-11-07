@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"image_service/types"
@@ -65,7 +66,11 @@ func ImdbFindMovieUrl(node *html.Node, params MatcherParams) (keep bool, exit bo
 		node.Data == params.Atom &&
 		node.FirstChild != nil &&
 		node.FirstChild.Data == params.Needle {
-		keep = true
+		node_str, err := render(node)
+		found := strings.Contains(node_str, "/title/")
+		if err == nil && found {
+			keep = true
+		}
 	}
 	return
 }
@@ -103,4 +108,13 @@ func traverse(doc *html.Node, matcher MatcherFunc, params MatcherParams) (nodes 
 	}
 	sifter(doc)
 	return nodes
+}
+
+func render(node *html.Node) (string, error) {
+	var buf bytes.Buffer
+	err := html.Render(&buf, node)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
