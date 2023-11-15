@@ -59,7 +59,7 @@ func main() {
 	}
 	app.Use(limiter.New(limiter.Config{
 		Max:                    config.App.Limiter.Max,
-		Expiration:             time.Duration(config.App.Limiter.Expiration),
+		Expiration:             time.Millisecond * time.Duration(config.App.Limiter.Expiration),
 		LimiterMiddleware:      middleware,
 		SkipSuccessfulRequests: config.App.Limiter.SkipSuccessfulRequests,
 	}))

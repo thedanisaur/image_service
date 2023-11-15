@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
@@ -108,6 +109,8 @@ func FetchImage(config types.Config) fiber.Handler {
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, txid.String()))
 		}
 
+		time.Sleep(time.Second * time.Duration(util.GetRandomInt(2, 5)))
+
 		// Go to title page and find the url for the image page
 		title_page_url := fmt.Sprintf("https://www.imdb.com%s", title_route)
 		response, err = crawler.Request(config, title_page_url, fasthttp.MethodGet)
@@ -132,6 +135,8 @@ func FetchImage(config types.Config) fiber.Handler {
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
+
+		time.Sleep(time.Second * time.Duration(util.GetRandomInt(2, 5)))
 
 		// // Go to image page and find the link to the actual image
 		image_page_url := fmt.Sprintf("https://www.imdb.com%s", image_page_route)
@@ -171,6 +176,9 @@ func FetchImage(config types.Config) fiber.Handler {
 				return c.Status(fiber.StatusInternalServerError).SendString(err_str)
 			}
 		}
+
+		time.Sleep(time.Second * time.Duration(util.GetRandomInt(2, 5)))
+
 		// Download the image
 		response, err = crawler.Request(config, image_url, fasthttp.MethodGet)
 		if err != nil {
