@@ -84,6 +84,7 @@ func FetchImage(config types.Config) fiber.Handler {
 			log.Printf("Failed to parse movie data\n%s\n", err.Error())
 			return c.Status(fiber.StatusBadRequest).SendString(fmt.Sprintf("Failed to parse movie data: %s\n", txid.String()))
 		}
+		log.Printf("Fetching image for: %s\n", movie_data.MovieTitle)
 
 		// First search imdb and find the url for the requested movie
 		movie_title := strings.Replace(movie_data.MovieTitle, " ", "%20", -1)
