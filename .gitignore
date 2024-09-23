@@ -1,5 +1,6 @@
 *.env
 *.key
+*.crt
 Dockerfile
 config.json
 img/
