@@ -127,9 +127,6 @@ func FetchImage(config types.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		txid := uuid.New()
 		log.Printf("%s | %s\n", util.GetFunctionName(FetchImage), txid.String())
-		// if security.ValidateJWT(c) != nil {
-		// 	return c.Status(fiber.StatusUnauthorized).SendString(fmt.Sprintf("Unauthorized: %s\n", txid.String()))
-		// }
 		// TODO in config see if we can remove ./ from the image.path
 		var movie_data types.Image
 		err := c.BodyParser(&movie_data)
@@ -142,7 +139,7 @@ func FetchImage(config types.Config) fiber.Handler {
 		// First search imdb and find the url for the requested movie
 		movie_title := strings.Replace(movie_data.MovieTitle, " ", "%20", -1)
 		main_url := fmt.Sprintf("https://www.imdb.com/find/?q=%s&ref_=nv_sr_sm", movie_title)
-		response, err := crawler.Request(config, main_url, fasthttp.MethodGet)
+		response, err := crawler.Request(config.App.Client.UserAgent, main_url, fasthttp.MethodGet, nil)
 		if err != nil {
 			err_str := "Failed to fetch imbd.com\n%s\n"
 			log.Printf(err_str, err.Error())
@@ -167,7 +164,7 @@ func FetchImage(config types.Config) fiber.Handler {
 
 		// Go to title page and find the url for the image page
 		title_page_url := fmt.Sprintf("https://www.imdb.com%s", title_route)
-		response, err = crawler.Request(config, title_page_url, fasthttp.MethodGet)
+		response, err = crawler.Request(config.App.Client.UserAgent, title_page_url, fasthttp.MethodGet, nil)
 		if err != nil {
 			err_str := "Failed to fetch the title page for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
@@ -194,7 +191,7 @@ func FetchImage(config types.Config) fiber.Handler {
 
 		// // Go to image page and find the link to the actual image
 		image_page_url := fmt.Sprintf("https://www.imdb.com%s", image_page_route)
-		response, err = crawler.Request(config, image_page_url, fasthttp.MethodGet)
+		response, err = crawler.Request(config.App.Client.UserAgent, image_page_url, fasthttp.MethodGet, nil)
 		if err != nil {
 			err_str := "Failed to fetch the image page for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
@@ -234,7 +231,7 @@ func FetchImage(config types.Config) fiber.Handler {
 		time.Sleep(time.Second * time.Duration(util.GetRandomInt(2, 5)))
 
 		// Download the image
-		response, err = crawler.Request(config, image_url, fasthttp.MethodGet)
+		response, err = crawler.Request(config.App.Client.UserAgent, image_url, fasthttp.MethodGet, nil)
 		if err != nil {
 			err_str := "Failed to download the image for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())

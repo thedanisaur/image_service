@@ -45,11 +45,24 @@
         },
         "client": {
             "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"
+        },
+        "workers": {
+            "image_fetch": {
+                "query_interval": 300000,
+                "fetch_interval": 30000
+            }
         }
     },
     "images": {
         "path": "/Users/novus/Documents/code/movie_sunday/movie_sunday/src/assets/",
         "directory": "img/",
         "type": ".jpg"
+    },
+    "service": {
+        "user": {
+            "host": "http://localhost",
+            "port": 4321,
+            "validate": "/validate"
+        }
     }
 }
