@@ -31,10 +31,23 @@ type Config struct {
 		Client struct {
 			UserAgent string `json:"user_agent"`
 		}
+		Workers struct {
+			ImageFetch struct {
+				QueryInterval int `json:"query_interval"`
+				FetchInterval int `json:"fetch_interval"`
+			} `json:"image_fetch"`
+		}
 	}
 	Images struct {
 		Path      string `json:"path"`
 		Directory string `json:"directory"`
 		Type      string `json:"type"`
+	}
+	Service struct {
+		User struct {
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			Validate string `json:"validate"`
+		}
 	}
 }

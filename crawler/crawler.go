@@ -2,9 +2,9 @@ package crawler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"image_service/types"
 	"log"
 	"strconv"
 	"strings"
@@ -13,12 +13,23 @@ import (
 	"golang.org/x/net/html"
 )
 
-func Request(config types.Config, uri string, method string) (*fasthttp.Response, error) {
+func Request(user_agent string, uri string, method string, body interface{}) (*fasthttp.Response, error) {
 	log.Printf("Making request METHOD: %s | URI: %s\n", method, uri)
 	request := fasthttp.AcquireRequest()
 	request.SetRequestURI(uri)
-	request.Header.Add("User-Agent", config.App.Client.UserAgent)
+	request.Header.Add("User-Agent", user_agent)
 	request.Header.SetMethodBytes([]byte(method))
+
+	if (method == fasthttp.MethodPost || method == fasthttp.MethodPut) && body != nil {
+		body, err := json.Marshal(body)
+		if err != nil {
+			log.Printf("Failed to marshal JSON body: %v", err)
+			return nil, err
+		}
+		request.SetBody(body)
+		request.Header.Set("Content-Type", "application/json")
+	}
+
 	response := fasthttp.AcquireResponse()
 	client := &fasthttp.Client{}
 	err := client.Do(request, response)
