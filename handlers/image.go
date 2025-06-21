@@ -3,23 +3,71 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"image"
 	"image_service/crawler"
 	"image_service/db"
 	"image_service/types"
 	"image_service/util"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
 	"time"
 
+	"image/jpeg"
+
+	"github.com/chai2010/webp"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"golang.org/x/image/draw"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
+
+func convertToWebp(path string) {
+	jpg_file, err := os.Open(path)
+	if err != nil {
+		log.Printf("Failed to open image:\n%s\n", path)
+		return
+	}
+	defer jpg_file.Close()
+
+	jpg, err := jpeg.Decode(jpg_file)
+	if err != nil {
+		log.Printf("Failed to decode jpeg:\n%s\n", path)
+		return
+	}
+
+	bounds := jpg.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// Only scale down if taller than 500px
+	if height > 1024 {
+		newHeight := 1024
+		newWidth := width * newHeight / height // maintain aspect ratio
+
+		// Resize image using high-quality scaler
+		destination := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+		draw.CatmullRom.Scale(destination, destination.Bounds(), jpg, bounds, draw.Over, nil)
+		jpg = destination
+	}
+
+	webp_path := strings.ReplaceAll(path, ".jpg", ".webp")
+	webp_file, err := os.Create(webp_path)
+	if err != nil {
+		log.Printf("Failed to create webp file:\n%s\n", path)
+		return
+	}
+	defer webp_file.Close()
+
+	err = webp.Encode(webp_file, jpg, &webp.Options{Lossless: false, Quality: 60})
+	if err != nil {
+		log.Printf("Failed to encode webp:\n%s\n", path)
+		return
+	}
+}
 
 func GetImage(config types.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
@@ -57,6 +105,11 @@ func GetImage(config types.Config) fiber.Handler {
 			log.Printf("File not on disk:\n%s\n", err.Error())
 			err_string := fmt.Sprintf("File not on disk: %s\n", txid.String())
 			return c.Status(fiber.StatusNotFound).SendString(err_string)
+		}
+
+		_, err = os.Stat(strings.Replace(path, ".jpg", ".webp", -1))
+		if err != nil {
+			convertToWebp(path)
 		}
 
 		json := &fiber.Map{
@@ -107,7 +160,7 @@ func FetchImage(config types.Config) fiber.Handler {
 		if err != nil {
 			err_str := "Failed to find url for %s: \n%s\n"
 			log.Printf(err_str, movie_data.MovieTitle, err.Error())
-			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, txid.String()))
+			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_title, txid.String()))
 		}
 
 		time.Sleep(time.Second * time.Duration(util.GetRandomInt(2, 5)))
@@ -189,36 +242,12 @@ func FetchImage(config types.Config) fiber.Handler {
 		}
 		path_and_filename := fmt.Sprintf("%s%s%s", full_path, movie_data.MovieName, config.Images.Type)
 		// Write file to disk
-		err = ioutil.WriteFile(path_and_filename, response.Body(), 0644)
+		err = os.WriteFile(path_and_filename, response.Body(), 0644)
 		if err != nil {
 			err_str := "Failed to write image to disk: %s\n%s\n"
 			log.Printf(err_str, path_and_filename, err.Error())
 			return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
 		}
-		// // Alternate way to write to disk...not sure if worth it
-		// file, err := os.Create(fmt.Sprintf("%s/%s%s", path, movie_data.MovieName, config.Images.Type))
-		// if err != nil {
-		// 	err_str := "Failed to create file on disk: %s%s\n%s\n"
-		// 	log.Printf(err_str, path, movie_data.MovieName, err.Error())
-		// 	return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
-		// }
-		// defer file.Close()
-		// img, _, err := image.Decode(bytes.NewReader(response.Body()))
-		// if err != nil {
-		// 	log.Fatalln(err)
-		// }
-
-		// opts := jpeg.Options{
-		// 	Quality: 10,
-		// }
-
-		// err = jpeg.Encode(file, img, &opts)
-		// if err != nil {
-		// 	err_str := "Failed to write image to disk: %s%s\n%s\n"
-		// 	log.Printf(err_str, path, movie_data.MovieName, err.Error())
-		// 	return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf(err_str, movie_data.MovieTitle, txid.String()))
-		// }
-		// file.Close()
 
 		// Insert image path into DB
 		err_string := fmt.Sprintf("Database Error: %s\n", txid.String())
